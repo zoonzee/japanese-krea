@@ -63,6 +63,15 @@ import Foundation
 
 class RadioHandler: NSObject {
     var buttons: [NSButton] = []
+    weak var promptView: NSTextView?
+    @objc func pastePrompt(_ sender: NSButton) {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        promptView?.string = text
+        if let view = promptView { view.window?.makeFirstResponder(view) }
+    }
     @objc func select(_ sender: NSButton) {
         for b in buttons { b.state = (b === sender) ? .on : .off }
     }
@@ -107,6 +116,10 @@ promptText.string = promptDefault
 promptScroll.documentView = promptText
 view.addSubview(promptScroll)
 
+let pasteButton = NSButton(title: "クリップボードから貼り付け", target: nil, action: nil)
+pasteButton.frame = NSRect(x: 274, y: 461, width: 200, height: 27)
+view.addSubview(pasteButton)
+
 label("LoRA（1つ選択）", 326)
 let lineHeight: CGFloat = 23
 let contentHeight = CGFloat(names.count) * lineHeight + 12
@@ -115,6 +128,9 @@ loraScroll.hasVerticalScroller = true
 loraScroll.borderType = .bezelBorder
 let doc = NSView(frame: NSRect(x: 0, y: 0, width: width - 28, height: contentHeight))
 let handler = RadioHandler()
+handler.promptView = promptText
+pasteButton.target = handler
+pasteButton.action = #selector(RadioHandler.pastePrompt(_:))
 for (i, name) in names.enumerated() {
     let button = NSButton(radioButtonWithTitle: name, target: handler, action: #selector(RadioHandler.select(_:)))
     button.frame = NSRect(x: 8, y: contentHeight - CGFloat(i + 1) * lineHeight - 3,
