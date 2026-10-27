@@ -1,3 +1,4 @@
+import tempfile
 #!/usr/bin/env python3
 """Japanese input -> faithful English prompt via Ollama -> MFLUX Krea 2 Turbo."""
 import json
@@ -261,9 +262,34 @@ def next_output_path():
     return OUTPUT_DIR / f"krea_{i:04d}.png"
 
 
+def japanese_input() -> str:
+    """Use a native macOS dialog with the previous prompt prefilled."""
+    previous = PROMPT_HISTORY.read_text(encoding="utf-8") if PROMPT_HISTORY.exists() else ""
+    applescript = """
+on run argv
+    set previousText to item 1 of argv
+    set dialogResult to display dialog "画像を日本語で説明してください" default answer previousText buttons {"キャンセル", "OK"} default button "OK"
+    return text returned of dialogResult
+end run
+"""
+    result = subprocess.run(
+        ["osascript", "-e", applescript, previous],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        if "User canceled" in result.stderr or "-128" in result.stderr:
+            return ""
+        raise RuntimeError(f"日本語入力ダイアログを開けません: {result.stderr.strip()}")
+    japanese = result.stdout.strip()
+    if japanese:
+        PROMPT_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+        PROMPT_HISTORY.write_text(japanese, encoding="utf-8")
+    return japanese
+
+
 def main() -> int:
     try:
-        japanese = " ".join(sys.argv[1:]).strip() or japanese_input()
+        selection = choose_settings(" ".join(sys.argv[1:]).strip())
     except (OSError, RuntimeError) as error:
         print(error, file=sys.stderr)
         return 1
