@@ -16,7 +16,7 @@ LORA_DIR = Path("/Volumes/Hanye2T/AI/mflux/loras")
 EXTRA_LORA_DIR = Path("/Volumes/Hanye2T/AI/ComfyDesktop/Models/loras")
 PROMPT_HISTORY = Path("/Volumes/Hanye2T/AI/mflux/last_prompt.txt")
 SETTINGS_PATH = Path("/Volumes/Hanye2T/AI/mflux/krea_settings.json")
-OUTPUT_DIR = Path("/Volumes/Hanye2T/AI/mflux")
+OUTPUT_DIR = Path.cwd()
 
 SYSTEM_PROMPT = """You are a precise Japanese-to-English translator for image generation.
 Translate the user's Japanese description faithfully into one English image prompt.
@@ -84,6 +84,7 @@ let previous = config["previous"] as? String ?? "LoRAなし"
 let promptDefault = config["prompt"] as? String ?? ""
 let seedDefault = config["seed"] as? String ?? "42"
 let scaleDefault = config["scale"] as? String ?? "1.0"
+let stepsDefault = config["steps"] as? String ?? "8"
 
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
@@ -149,14 +150,21 @@ let seedLabel = NSTextField(labelWithString: "シード")
 seedLabel.frame = NSRect(x: 4, y: 57, width: 78, height: 22)
 view.addSubview(seedLabel)
 let seedField = NSTextField(string: seedDefault)
-seedField.frame = NSRect(x: 84, y: 55, width: 145, height: 25)
+seedField.frame = NSRect(x: 72, y: 55, width: 90, height: 25)
 view.addSubview(seedField)
 
+let stepsLabel = NSTextField(labelWithString: "ステップ数")
+stepsLabel.frame = NSRect(x: 174, y: 57, width: 82, height: 22)
+view.addSubview(stepsLabel)
+let stepsField = NSTextField(string: stepsDefault)
+stepsField.frame = NSRect(x: 257, y: 55, width: 57, height: 25)
+view.addSubview(stepsField)
+
 let scaleLabel = NSTextField(labelWithString: "LoRA強度")
-scaleLabel.frame = NSRect(x: 245, y: 57, width: 84, height: 22)
+scaleLabel.frame = NSRect(x: 325, y: 57, width: 78, height: 22)
 view.addSubview(scaleLabel)
 let scaleField = NSTextField(string: scaleDefault)
-scaleField.frame = NSRect(x: 333, y: 55, width: 140, height: 25)
+scaleField.frame = NSRect(x: 408, y: 55, width: 66, height: 25)
 view.addSubview(scaleField)
 
 let note = NSTextField(labelWithString: "画像は krea_0001.png, krea_0002.png ... と連番保存")
@@ -173,6 +181,7 @@ let output: [String: Any] = [
     "prompt": promptText.string,
     "index": index,
     "seed": seedField.stringValue,
+    "steps": stepsField.stringValue,
     "scale": scaleField.stringValue
 ]
 let json = try! JSONSerialization.data(withJSONObject: output)
@@ -181,7 +190,7 @@ FileHandle.standardOutput.write(json)
 
 
 def choose_settings(initial_prompt: str = ""):
-    """Single macOS dialog for Japanese text, LoRA, seed and scale."""
+    """Single macOS dialog for Japanese text, LoRA, seed, steps and scale."""
     paths = sorted(
         {p.resolve() for folder in (LORA_DIR, EXTRA_LORA_DIR)
          if folder.is_dir() for p in folder.glob("*.safetensors")},
@@ -205,6 +214,7 @@ def choose_settings(initial_prompt: str = ""):
         "previous": names[previous_index],
         "prompt": initial_prompt or previous_prompt,
         "seed": str(settings.get("seed", 42)),
+        "steps": str(settings.get("steps", 8)),
         "scale": str(settings.get("scale", 1.0)),
     }
     with tempfile.TemporaryDirectory(prefix="krea_ui_") as folder:
@@ -223,9 +233,10 @@ def choose_settings(initial_prompt: str = ""):
         selection = json.loads(result.stdout)
         japanese = selection["prompt"].strip()
         seed = int(selection["seed"].strip())
+        steps = int(selection["steps"].strip())
         scale = float(selection["scale"].strip())
         index = int(selection["index"])
-        if seed < 0 or not 0 <= scale <= 2 or not 0 <= index <= len(paths):
+        if seed < 0 or not 1 <= steps <= 100 or not 0 <= scale <= 2 or not 0 <= index <= len(paths):
             raise ValueError("範囲外")
         if not japanese:
             raise ValueError("日本語プロンプトが空です")
@@ -234,13 +245,13 @@ def choose_settings(initial_prompt: str = ""):
     path = paths[index - 1] if index else None
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(
-        json.dumps({"prompt": japanese, "seed": seed, "scale": scale,
+        json.dumps({"prompt": japanese, "seed": seed, "steps": steps, "scale": scale,
                     "lora": str(path) if path else ""},
                    ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     PROMPT_HISTORY.write_text(japanese, encoding="utf-8")
-    return japanese, path, scale, seed
+    return japanese, path, scale, seed, steps
 
 
 def next_output_path():
@@ -260,7 +271,7 @@ def main() -> int:
     if selection is None:
         print("キャンセルしました。")
         return 0
-    japanese, lora_path, lora_scale, seed = selection
+    japanese, lora_path, lora_scale, seed, steps = selection
     try:
         english = translate(japanese)
     except (urllib.error.URLError, TimeoutError, RuntimeError) as error:
@@ -274,7 +285,7 @@ def main() -> int:
     command = [
         "mflux-generate-krea2", "--prompt", english,
         "--width", "1024", "--height", "1024",
-        "--seed", str(seed), "--steps", "8", "-q", "8",
+        "--seed", str(seed), "--steps", str(steps), "-q", "8",
     ]
     if lora_path is not None:
         command.extend(["--lora-paths", str(lora_path), "--lora-scales", str(lora_scale)])
